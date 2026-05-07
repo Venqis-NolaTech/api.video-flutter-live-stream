@@ -2,6 +2,18 @@
 
 All changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-05-06
+
+**Venqis fork:** Android changes are based on upstream git tag **`v1.2.0`** (Dart / MethodChannel API
+unchanged from that release).
+
+- Android: **StreamPack 3.1.2** (`streampack-core`, `streampack-rtmp`), **AGP 8.9.1**, **Gradle 8.11.1**,
+  Kotlin **2.2.0**, Java **17**, `compileSdk` **36**, `minSdk` **24** for
+  [16 KB page size](https://developer.android.com/guide/practices/page-sizes#build) compatibility.
+- Android: Replace `CameraRtmpLiveStreamer` with **`SingleStreamer`** / **`RtmpEndpointFactory`**, `open`/`close`,
+  **`RtmpMediaDescriptor`**, and **`IWithVideoSource`** preview helpers in **`FlutterLiveStreamView`**.
+- Add `scripts/verify_android_16k_page_size.sh`; example release uses R8 + ProGuard rules for optional AndroidX Window stubs.
+
 ## [1.2.0] - 2024-02-12
 
 - Add a `fit` parameter to `ApiVideoCameraPreview` to control the fit of the preview inside its

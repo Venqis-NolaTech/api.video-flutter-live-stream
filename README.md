@@ -179,6 +179,20 @@ Wait for the indexation to finish.
 
 #### Android
 
+This **Venqis fork** keeps the **Dart plugin surface from upstream `v1.2.0`** (MethodChannel-based
+Android). Native Android uses **StreamPack 3.1.2** and a modern Gradle stack (**AGP ≥ 8.5.1**) as
+recommended for [16 KB device support](https://developer.android.com/guide/practices/page-sizes#build).
+
+After a release build:
+
+```shell
+./scripts/verify_android_16k_page_size.sh path/to/app-release.apk
+```
+
+You can also run `zipalign -v -c -P 16 4 app-release.apk` (Android build-tools 35+) and
+`bundletool dump config --bundle=app.aab | grep -i alignment`. On a 16 KB environment,
+`adb shell getconf PAGE_SIZE` should print `16384`.
+
 Connect an Android device to your computer and click on the `Run main.dart` button.
 
 #### iOS
