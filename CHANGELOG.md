@@ -1,6 +1,20 @@
 # Changelog
 
-All changes to this project will be documented in this file.
+All notable changes to this project will be documented in this file.
+
+## [1.2.1] - 2026-05-08
+
+**Venqis fork** — branch `android-16kb-v120`; Dart API unchanged from upstream **`v1.2.0`** (`a153f5d`).
+
+### Android (16 KB page-size preparedness)
+
+- Toolchain: **AGP 8.7.2**, **Gradle 8.9**, **Kotlin 2.1.10**, **Java 17**, **`compileSdk` 36** in the plugin module; **StreamPack 2.6.1** (legacy Maven coordinates).
+- Example app: migrated to **Flutter 3.38+** Gradle style (`dev.flutter.flutter-plugin-loader`, `dev.flutter.flutter-gradle-plugin`), `compileSdk` / `ndkVersion` from Flutter extensions.
+- Added [`scripts/verify_android_16k_page_size.sh`](scripts/verify_android_16k_page_size.sh) and [`docs/ANDROID_16KB.md`](docs/ANDROID_16KB.md).
+
+**ELF verification:** Example release APK still contains **4 KB–aligned** `librtmp*.so`, `libssl.so`, `libcrypto.so` from the StreamPack RTMP extension AARs. Full 16 KB LOAD alignment requires newer StreamPack binaries (see docs). No StreamPack 3 / `SingleStreamer` migration in this release.
+
+---
 
 ## [1.2.0] - 2024-02-12
 

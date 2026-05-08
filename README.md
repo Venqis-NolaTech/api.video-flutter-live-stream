@@ -181,6 +181,8 @@ Wait for the indexation to finish.
 
 Connect an Android device to your computer and click on the `Run main.dart` button.
 
+For **16 KB page-size** compatibility notes, toolchain, and verification script, see [docs/ANDROID_16KB.md](docs/ANDROID_16KB.md).
+
 #### iOS
 
 1) Connect an iOS device to your computer and click on the `Run main.dart` button.
