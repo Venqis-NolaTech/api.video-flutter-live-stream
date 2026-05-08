@@ -4,6 +4,8 @@ version '1.0-SNAPSHOT'
 buildscript {
     ext {
         kotlin_version = '2.1.10'
+        // Matches Maven Central latest `streampack-core` + `streampack-rtmp`
+        // (verified 2026-05: maven-metadata `<release>` = 3.1.2). Keep both deps on the same value.
         streamPackVersion = '3.1.2'
     }
     repositories {
