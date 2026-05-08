@@ -5,18 +5,30 @@ import android.content.Context
 import android.util.Size
 import android.view.Surface
 import io.flutter.view.TextureRegistry
-import io.github.thibaultbee.streampack.data.AudioConfig
-import io.github.thibaultbee.streampack.data.VideoConfig
-import io.github.thibaultbee.streampack.error.StreamPackError
-import io.github.thibaultbee.streampack.ext.rtmp.streamers.CameraRtmpLiveStreamer
-import io.github.thibaultbee.streampack.listeners.OnConnectionListener
-import io.github.thibaultbee.streampack.listeners.OnErrorListener
-import io.github.thibaultbee.streampack.utils.backCameraList
-import io.github.thibaultbee.streampack.utils.externalCameraList
-import io.github.thibaultbee.streampack.utils.frontCameraList
-import io.github.thibaultbee.streampack.utils.isBackCamera
-import io.github.thibaultbee.streampack.utils.isExternalCamera
-import io.github.thibaultbee.streampack.utils.isFrontCamera
+import io.github.thibaultbee.streampack.core.elements.encoders.AudioCodecConfig
+import io.github.thibaultbee.streampack.core.elements.encoders.VideoCodecConfig
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.ICameraSource
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.backCameras
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.cameraManager
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.externalCameras
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.frontCameras
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.isBackCamera
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.isExternalCamera
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.isFrontCamera
+import io.github.thibaultbee.streampack.core.interfaces.setCameraId
+import io.github.thibaultbee.streampack.core.interfaces.startPreview
+import io.github.thibaultbee.streampack.core.interfaces.stopPreview
+import io.github.thibaultbee.streampack.core.streamers.single.SingleStreamer
+import io.github.thibaultbee.streampack.core.streamers.single.cameraSingleStreamer
+import io.github.thibaultbee.streampack.ext.rtmp.configuration.mediadescriptor.RtmpMediaDescriptor
+import io.github.thibaultbee.streampack.ext.rtmp.elements.endpoints.RtmpEndpointFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class FlutterLiveStreamView(
@@ -28,34 +40,61 @@ class FlutterLiveStreamView(
     private val onConnectionFailed: (String) -> Unit,
     private val onGenericError: (Exception) -> Unit,
     private val onVideoSizeChanged: (Size) -> Unit,
-) :
-    OnConnectionListener, OnErrorListener {
+) {
     private val flutterTexture = textureRegistry.createSurfaceTexture()
     val textureId: Long
         get() = flutterTexture.id()
 
-    private val streamer = CameraRtmpLiveStreamer(
-        context = context,
-        initialOnConnectionListener = this,
-        initialOnErrorListener = this
-    )
+    private val streamer: SingleStreamer = runBlocking {
+        cameraSingleStreamer(
+            context,
+            endpointFactory = RtmpEndpointFactory(),
+        )
+    }
+
+    private val supervisorJob = SupervisorJob()
+    private val scope = CoroutineScope(supervisorJob + Dispatchers.Main.immediate)
 
     private var _isPreviewing = false
     private var _isStreaming = false
     val isStreaming: Boolean
         get() = _isStreaming
 
-
-    private var _videoConfig: VideoConfig? = null
-    val videoConfig: VideoConfig
+    private var _videoConfig: VideoCodecConfig? = null
+    val videoConfig: VideoCodecConfig
         get() = _videoConfig!!
 
+    private val cameraId: String
+        get() = (streamer.videoInput?.sourceFlow?.value as? ICameraSource)?.cameraId
+            ?: throw IllegalStateException("Camera source is not ready")
+
+    init {
+        scope.launch {
+            streamer.throwableFlow
+                .filterNotNull()
+                .collect { t ->
+                    _isStreaming = false
+                    onGenericError(t as? Exception ?: Exception(t.message, t))
+                }
+        }
+        scope.launch {
+            streamer.isOpenFlow
+                .filter { !it }
+                .collect {
+                    if (_isStreaming) {
+                        _isStreaming = false
+                        onDisconnected()
+                    }
+                }
+        }
+    }
+
     fun setVideoConfig(
-        videoConfig: VideoConfig,
+        videoConfig: VideoCodecConfig,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
-        if (isStreaming) {
+        if (_isStreaming) {
             throw UnsupportedOperationException("You have to stop streaming first")
         }
 
@@ -65,25 +104,31 @@ class FlutterLiveStreamView(
         if (wasPreviewing) {
             stopPreview()
         }
-        streamer.configure(videoConfig)
-        _videoConfig = videoConfig
-        if (wasPreviewing) {
-            startPreview(onSuccess, onError)
-        } else {
-            onSuccess()
+        try {
+            runBlocking {
+                streamer.setVideoConfig(videoConfig)
+            }
+            _videoConfig = videoConfig
+            if (wasPreviewing) {
+                startPreview(onSuccess, onError)
+            } else {
+                onSuccess()
+            }
+        } catch (e: Exception) {
+            onError(e)
         }
     }
 
-    private var _audioConfig: AudioConfig? = null
-    val audioConfig: AudioConfig
+    private var _audioConfig: AudioCodecConfig? = null
+    val audioConfig: AudioCodecConfig
         get() = _audioConfig!!
 
     fun setAudioConfig(
-        audioConfig: AudioConfig,
+        audioConfig: AudioCodecConfig,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
-        if (isStreaming) {
+        if (_isStreaming) {
             throw UnsupportedOperationException("You have to stop streaming first")
         }
 
@@ -91,7 +136,9 @@ class FlutterLiveStreamView(
             Manifest.permission.RECORD_AUDIO,
             onGranted = {
                 try {
-                    streamer.configure(audioConfig)
+                    runBlocking {
+                        streamer.setAudioConfig(audioConfig)
+                    }
                     _audioConfig = audioConfig
                     onSuccess()
                 } catch (e: Exception) {
@@ -99,15 +146,6 @@ class FlutterLiveStreamView(
                 }
             },
             onShowPermissionRationale = { _ ->
-                /**
-                 * Require an AppCompat theme to use MaterialAlertDialogBuilder
-                 *
-                context.showDialog(
-                R.string.permission_required,
-                R.string.record_audio_permission_required_message,
-                android.R.string.ok,
-                onPositiveButtonClick = { onRequiredPermissionLastTime() }
-                ) */
                 onError(SecurityException("Missing permission Manifest.permission.RECORD_AUDIO"))
             },
             onDenied = {
@@ -116,35 +154,28 @@ class FlutterLiveStreamView(
     }
 
     var isMuted: Boolean
-        get() = streamer.settings.audio.isMuted
+        get() = streamer.audioInput?.isMuted ?: false
         set(value) {
-            streamer.settings.audio.isMuted = value
+            streamer.audioInput?.isMuted = value
         }
 
     val camera: String
-        get() = streamer.camera
+        get() = cameraId
 
     fun setCamera(camera: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
         permissionsManager.requestPermission(
             Manifest.permission.CAMERA,
             onGranted = {
                 try {
-                    streamer.camera = camera
+                    runBlocking {
+                        streamer.setCameraId(camera)
+                    }
                     onSuccess()
                 } catch (e: Exception) {
                     onError(e)
                 }
             },
             onShowPermissionRationale = { _ ->
-                /**
-                 * Require an AppCompat theme to use MaterialAlertDialogBuilder
-                 *
-                 * context.showDialog(
-                R.string.permission_required,
-                R.string.camera_permission_required_message,
-                android.R.string.ok,
-                onPositiveButtonClick = { onRequiredPermissionLastTime() }
-                )*/
                 onError(SecurityException("Missing permission Manifest.permission.CAMERA"))
             },
             onDenied = {
@@ -154,17 +185,17 @@ class FlutterLiveStreamView(
 
     val cameraPosition: String
         get() = when {
-            context.isFrontCamera(streamer.camera) -> "front"
-            context.isBackCamera(streamer.camera) -> "back"
-            context.isExternalCamera(streamer.camera) -> "other"
-            else -> throw IllegalArgumentException("Invalid camera position for camera ${streamer.camera}")
+            context.cameraManager.isFrontCamera(cameraId) -> "front"
+            context.cameraManager.isBackCamera(cameraId) -> "back"
+            context.cameraManager.isExternalCamera(cameraId) -> "other"
+            else -> throw IllegalArgumentException("Invalid camera position for camera $cameraId")
         }
 
     fun setCameraPosition(position: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
         val cameraList = when (position) {
-            "front" -> context.frontCameraList
-            "back" -> context.backCameraList
-            "other" -> context.externalCameraList
+            "front" -> context.cameraManager.frontCameras
+            "back" -> context.cameraManager.backCameras
+            "other" -> context.cameraManager.externalCameras
             else -> throw IllegalArgumentException("Invalid camera position: $position")
         }
         setCamera(cameraList.first(), onSuccess, onError)
@@ -172,33 +203,53 @@ class FlutterLiveStreamView(
 
     fun dispose() {
         stopStream()
-        streamer.stopPreview()
+        runBlocking {
+            try {
+                streamer.stopPreview()
+            } catch (_: Exception) {
+            }
+            try {
+                streamer.release()
+            } catch (_: Exception) {
+            }
+        }
+        supervisorJob.cancel()
         flutterTexture.release()
     }
 
     fun startStream(url: String) {
         runBlocking {
-            streamer.connect(url)
             try {
+                streamer.open(RtmpMediaDescriptor.fromUrl(url))
+                onConnectionSucceeded()
                 streamer.startStream()
                 _isStreaming = true
             } catch (e: Exception) {
-                streamer.disconnect()
-                onLost("Failed to start stream: ${e.message}")
+                try {
+                    streamer.close()
+                } catch (_: Exception) {
+                }
+                onConnectionFailed("Failed to start stream: ${e.message}")
                 throw e
             }
         }
     }
 
     fun stopStream() {
-        val isConnected = streamer.isConnected
+        val wasOpen = streamer.isOpenFlow.value
+        _isStreaming = false
         runBlocking {
-            streamer.stopStream()
-            streamer.disconnect()
-            if (isConnected) {
-                onDisconnected()
+            try {
+                streamer.stopStream()
+            } catch (_: Exception) {
             }
-            _isStreaming = false
+            try {
+                streamer.close()
+            } catch (_: Exception) {
+            }
+        }
+        if (wasOpen) {
+            onDisconnected()
         }
     }
 
@@ -210,7 +261,9 @@ class FlutterLiveStreamView(
                     onError(IllegalStateException("Video has not been configured!"))
                 } else {
                     try {
-                        streamer.startPreview(getSurface(videoConfig.resolution))
+                        runBlocking {
+                            streamer.startPreview(getSurface(videoConfig.resolution))
+                        }
                         _isPreviewing = true
                         onSuccess()
                     } catch (e: Exception) {
@@ -219,15 +272,6 @@ class FlutterLiveStreamView(
                 }
             },
             onShowPermissionRationale = { _ ->
-                /**
-                 * Require an AppCompat theme to use MaterialAlertDialogBuilder
-                 *
-                 * context.showDialog(
-                R.string.permission_required,
-                R.string.camera_permission_required_message,
-                android.R.string.ok,
-                onPositiveButtonClick = { onRequiredPermissionLastTime() }
-                )*/
                 onError(SecurityException("Missing permission Manifest.permission.CAMERA"))
             },
             onDenied = {
@@ -236,7 +280,12 @@ class FlutterLiveStreamView(
     }
 
     fun stopPreview() {
-        streamer.stopPreview()
+        runBlocking {
+            try {
+                streamer.stopPreview()
+            } catch (_: Exception) {
+            }
+        }
         _isPreviewing = false
     }
 
@@ -248,23 +297,5 @@ class FlutterLiveStreamView(
             )
         }
         return Surface(surfaceTexture)
-    }
-
-
-    override fun onSuccess() {
-        onConnectionSucceeded()
-    }
-
-    override fun onLost(message: String) {
-        onDisconnected()
-    }
-
-    override fun onFailed(message: String) {
-        onConnectionFailed(message)
-    }
-
-    override fun onError(error: StreamPackError) {
-        _isStreaming = false
-        onGenericError(error)
     }
 }

@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-05-08
+
+**Venqis fork** — branch `android-16kb-v120`. **StreamPack 3.1.2** migration for **16 KB–friendly** JNI and modular Maven coordinates.
+
+### Android
+
+- Dependencies: **`io.github.thibaultbee.streampack:streampack-core`** + **`streampack-rtmp`** at **3.1.2** (replaces monolithic `streampack` + `streampack-extension-rtmp` 2.x).
+- **`FlutterLiveStreamView`**: `SingleStreamer` via `cameraSingleStreamer` + `RtmpEndpointFactory`; RTMP with `RtmpMediaDescriptor.fromUrl`, `open` / `startStream` / `stopStream` / `close`; preview and camera via StreamPack 3 APIs (`VideoCodecConfig` / `AudioCodecConfig`).
+- **`Extensions.kt`**: maps MethodChannel maps to `VideoCodecConfig` / `AudioCodecConfig` (includes optional `gopDurationInS`).
+- **AGP 8.9.1**, **Gradle 8.11.1**, **`minSdk` 24** (library), Kotlin 2.1.10, coroutines 1.10.2, AppCompat 1.7.1.
+- **Breaking (Android):** `minSdk` raised from 21 to **24**.
+
+See [docs/ANDROID_16KB.md](docs/ANDROID_16KB.md) for verification script and host app `git ref` notes.
+
+---
+
+## [1.3.0] - 2026-05-08
+
+**Venqis fork** — branch `android-16kb-v120`. **StreamPack 3.1.2** migration for **16 KB–friendly** JNI and modular Maven coordinates.
+
+### Android
+
+- Dependencies: **`io.github.thibaultbee.streampack:streampack-core`** + **`streampack-rtmp`** at **3.1.2** (replaces monolithic `streampack` + `streampack-extension-rtmp` 2.x).
+- **`FlutterLiveStreamView`**: `SingleStreamer` via `cameraSingleStreamer` + `RtmpEndpointFactory`; RTMP with `RtmpMediaDescriptor.fromUrl`, `open` / `startStream` / `stopStream` / `close`; preview and camera via StreamPack 3 APIs (`VideoCodecConfig` / `AudioCodecConfig`).
+- **`Extensions.kt`**: maps MethodChannel maps to `VideoCodecConfig` / `AudioCodecConfig` (includes optional `gopDurationInS`).
+- **AGP 8.9.1**, **Gradle 8.11.1**, **`minSdk` 24** (library), Kotlin 2.1.10, coroutines 1.10.2, AppCompat 1.7.1.
+- **Breaking (Android):** `minSdk` raised from 21 to **24**.
+
+See [docs/ANDROID_16KB.md](docs/ANDROID_16KB.md) for verification script and host app `git ref` notes.
+
+---
+
 ## [1.2.1] - 2026-05-08
 
 **Venqis fork** — branch `android-16kb-v120`; Dart API unchanged from upstream **`v1.2.0`** (`a153f5d`).

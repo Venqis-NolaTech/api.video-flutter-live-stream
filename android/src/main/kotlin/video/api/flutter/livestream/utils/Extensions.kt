@@ -1,31 +1,35 @@
 package video.api.flutter.livestream.utils
 
+import android.media.AudioFormat
 import android.util.Size
-import io.github.thibaultbee.streampack.data.AudioConfig
-import io.github.thibaultbee.streampack.data.VideoConfig
+import io.github.thibaultbee.streampack.core.elements.encoders.AudioCodecConfig
+import io.github.thibaultbee.streampack.core.elements.encoders.VideoCodecConfig
 
-
-fun Map<String, Any>.toVideoConfig(): VideoConfig {
-    return VideoConfig(
+fun Map<String, Any>.toVideoConfig(): VideoCodecConfig {
+    val gop = when (val v = this["gopDurationInS"]) {
+        is Double -> v.toFloat()
+        is Int -> v.toFloat()
+        else -> 1f
+    }
+    return VideoCodecConfig(
         startBitrate = this["bitrate"] as Int,
         resolution = (this["resolution"] as String).toResolution(),
-        fps = this["fps"] as Int
+        fps = this["fps"] as Int,
+        gopDurationInS = gop,
     )
 }
 
-fun Map<String, Any>.toAudioConfig(): AudioConfig {
-    return AudioConfig(
+fun Map<String, Any>.toAudioConfig(): AudioCodecConfig {
+    val channelCount = if (this["channel"] == "stereo") 2 else 1
+    val channelConfig = if (channelCount == 2) {
+        AudioFormat.CHANNEL_IN_STEREO
+    } else {
+        AudioFormat.CHANNEL_IN_MONO
+    }
+    return AudioCodecConfig(
         startBitrate = this["bitrate"] as Int,
         sampleRate = this["sampleRate"] as Int,
-        channelConfig = AudioConfig.getChannelConfig(
-            if (this["channel"] == "stereo") {
-                2
-            } else {
-                1
-            }
-        ),
-        enableNoiseSuppressor = this["enableNoiseSuppressor"] as Boolean,
-        enableEchoCanceler = this["enableEchoCanceler"] as Boolean
+        channelConfig = channelConfig,
     )
 }
 
@@ -48,5 +52,3 @@ fun String.toResolution(): Size {
 fun String.addTrailingSlashIfNeeded(): String {
     return if (this.endsWith("/")) this else "$this/"
 }
-
-
