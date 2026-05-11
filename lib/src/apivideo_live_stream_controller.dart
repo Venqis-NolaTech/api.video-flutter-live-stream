@@ -36,32 +36,35 @@ class ApiVideoLiveStreamController {
   List<ApiVideoLiveStreamWidgetListener> _widgetListeners = [];
 
   /// Creates a new [ApiVideoLiveStreamController] instance.
-  ApiVideoLiveStreamController(
-      {required AudioConfig initialAudioConfig,
-      required VideoConfig initialVideoConfig,
-      CameraPosition initialCameraPosition = CameraPosition.back,
-      VoidCallback? onConnectionSuccess,
-      Function(String)? onConnectionFailed,
-      VoidCallback? onDisconnection,
-      Function(Exception)? onError})
-      : _initialVideoConfig = initialVideoConfig,
-        _initialAudioConfig = initialAudioConfig,
-        _initialCameraPosition = initialCameraPosition {
-    _eventsListeners.add(ApiVideoLiveStreamEventsListener(
+  ApiVideoLiveStreamController({
+    required AudioConfig initialAudioConfig,
+    required VideoConfig initialVideoConfig,
+    CameraPosition initialCameraPosition = CameraPosition.back,
+    VoidCallback? onConnectionSuccess,
+    Function(String)? onConnectionFailed,
+    VoidCallback? onDisconnection,
+    Function(Exception)? onError,
+  }) : _initialVideoConfig = initialVideoConfig,
+       _initialAudioConfig = initialAudioConfig,
+       _initialCameraPosition = initialCameraPosition {
+    _eventsListeners.add(
+      ApiVideoLiveStreamEventsListener(
         onConnectionSuccess: onConnectionSuccess,
         onConnectionFailed: onConnectionFailed,
         onDisconnection: onDisconnection,
-        onError: onError));
+        onError: onError,
+      ),
+    );
   }
 
-  ApiVideoLiveStreamController.fromListener(
-      {required AudioConfig initialAudioConfig,
-      required VideoConfig initialVideoConfig,
-      CameraPosition initialCameraPosition = CameraPosition.back,
-      ApiVideoLiveStreamEventsListener? listener})
-      : _initialVideoConfig = initialVideoConfig,
-        _initialAudioConfig = initialAudioConfig,
-        _initialCameraPosition = initialCameraPosition {
+  ApiVideoLiveStreamController.fromListener({
+    required AudioConfig initialAudioConfig,
+    required VideoConfig initialVideoConfig,
+    CameraPosition initialCameraPosition = CameraPosition.back,
+    ApiVideoLiveStreamEventsListener? listener,
+  }) : _initialVideoConfig = initialVideoConfig,
+       _initialAudioConfig = initialAudioConfig,
+       _initialCameraPosition = initialCameraPosition {
     if (listener != null) {
       _eventsListeners.add(listener);
     }
@@ -114,9 +117,10 @@ class ApiVideoLiveStreamController {
   }
 
   /// Starts the live stream to the specified "[url]/[streamKey]".
-  Future<void> startStreaming(
-      {required String streamKey,
-      String url = "rtmp://broadcast.api.video/s/"}) async {
+  Future<void> startStreaming({
+    required String streamKey,
+    String url = "rtmp://broadcast.api.video/s/",
+  }) async {
     return _platform.startStreaming(streamKey: streamKey, url: url);
   }
 
@@ -257,6 +261,13 @@ class ApiVideoLiveStreamController {
           }
         }
         break;
+      case LiveStreamingEventType.cameraSwitched:
+        for (var listener in [..._widgetListeners]) {
+          if (listener.onCameraSwitched != null) {
+            listener.onCameraSwitched!();
+          }
+        }
+        break;
       case LiveStreamingEventType.unknown:
         // Nothing to do
         break;
@@ -280,16 +291,23 @@ class ApiVideoLiveStreamEventsListener {
   /// Gets notified when an error occurs
   final Function(Exception)? onError;
 
-  ApiVideoLiveStreamEventsListener(
-      {this.onConnectionSuccess,
-      this.onConnectionFailed,
-      this.onDisconnection,
-      this.onVideoSizeChanged,
-      this.onError});
+  ApiVideoLiveStreamEventsListener({
+    this.onConnectionSuccess,
+    this.onConnectionFailed,
+    this.onDisconnection,
+    this.onVideoSizeChanged,
+    this.onError,
+  });
 }
 
 class ApiVideoLiveStreamWidgetListener {
   final VoidCallback? onTextureReady;
 
-  ApiVideoLiveStreamWidgetListener({this.onTextureReady});
+  /// Called when the camera has been switched (front <-> back).
+  final VoidCallback? onCameraSwitched;
+
+  ApiVideoLiveStreamWidgetListener({
+    this.onTextureReady,
+    this.onCameraSwitched,
+  });
 }

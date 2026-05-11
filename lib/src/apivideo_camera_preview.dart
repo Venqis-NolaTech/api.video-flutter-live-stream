@@ -8,11 +8,12 @@ import 'apivideo_live_stream_controller.dart';
 ///
 class ApiVideoCameraPreview extends StatefulWidget {
   /// Creates a new [ApiVideoCameraPreview] instance for [controller] and a [child] overlay.
-  const ApiVideoCameraPreview(
-      {super.key,
-      required this.controller,
-      this.fit = BoxFit.contain,
-      this.child});
+  const ApiVideoCameraPreview({
+    super.key,
+    required this.controller,
+    this.fit = BoxFit.contain,
+    this.child,
+  });
 
   /// The controller for the camera to display the preview for.
   final ApiVideoLiveStreamController controller;
@@ -29,24 +30,42 @@ class ApiVideoCameraPreview extends StatefulWidget {
 
 class _ApiVideoCameraPreviewState extends State<ApiVideoCameraPreview> {
   _ApiVideoCameraPreviewState() {
-    _widgetListener = ApiVideoLiveStreamWidgetListener(onTextureReady: () {
-      final int newTextureId = widget.controller.textureId;
-      if (newTextureId != _textureId) {
-        setState(() {
-          _textureId = newTextureId;
-        });
-      }
-    });
+    _widgetListener = ApiVideoLiveStreamWidgetListener(
+      onTextureReady: () {
+        final int newTextureId = widget.controller.textureId;
+        if (newTextureId != _textureId) {
+          setState(() {
+            _textureId = newTextureId;
+          });
+        }
+      },
+      onCameraSwitched: () {
+        // Force rebuild of Texture widget when camera switches.
+        // The Texture keeps the same textureId but the underlying surface
+        // is recreated with the new camera's frames.
+        if (mounted) {
+          setState(() {
+            // Trigger rebuild by toggling a dummy key — the Texture widget
+            // will re-render and pick up the new camera's frames.
+            _textureRebuildCounter++;
+          });
+        }
+      },
+    );
 
-    _eventsListener =
-        ApiVideoLiveStreamEventsListener(onVideoSizeChanged: (size) {
-      _updateAspectRatio(size);
-    });
+    _eventsListener = ApiVideoLiveStreamEventsListener(
+      onVideoSizeChanged: (size) {
+        _updateAspectRatio(size);
+      },
+    );
   }
 
   late ApiVideoLiveStreamWidgetListener _widgetListener;
   late ApiVideoLiveStreamEventsListener _eventsListener;
   late int _textureId;
+
+  /// Counter to force Texture rebuild on camera switch.
+  int _textureRebuildCounter = 0;
 
   double _aspectRatio = 1.77;
   Size _size = const Size(1280, 720);
@@ -82,50 +101,74 @@ class _ApiVideoCameraPreviewState extends State<ApiVideoCameraPreview> {
   }
 
   Widget _buildPreview(BuildContext context) {
-    return NativeDeviceOrientationReader(builder: (context) {
-      final orientation = NativeDeviceOrientationReader.orientation(context);
-      return LayoutBuilder(
+    return NativeDeviceOrientationReader(
+      builder: (context) {
+        final orientation = NativeDeviceOrientationReader.orientation(context);
+        return LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
-        return Stack(alignment: Alignment.center, children: [
-          _buildFittedPreview(constraints, orientation),
-          _buildFittedOverlay(constraints, orientation)
-        ]);
-      });
-    });
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                _buildFittedPreview(constraints, orientation),
+                _buildFittedOverlay(constraints, orientation),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Widget _buildFittedPreview(
-      BoxConstraints constraints, NativeDeviceOrientation orientation) {
+    BoxConstraints constraints,
+    NativeDeviceOrientation orientation,
+  ) {
     final orientedSize = _size.orientate(orientation);
     // See https://github.com/flutter/flutter/issues/17287
     return SizedBox(
-        width: constraints.maxWidth,
-        height: constraints.maxHeight,
-        child: FittedBox(
-            fit: widget.fit,
-            clipBehavior: Clip.hardEdge,
-            child: Center(
-                child: SizedBox(
-                    width: orientedSize.width,
-                    height: orientedSize.height,
-                    child: _wrapInRotatedBox(
-                        orientation: orientation,
-                        child: widget.controller.buildPreview())))));
+      width: constraints.maxWidth,
+      height: constraints.maxHeight,
+      child: FittedBox(
+        fit: widget.fit,
+        clipBehavior: Clip.hardEdge,
+        child: Center(
+          child: SizedBox(
+            width: orientedSize.width,
+            height: orientedSize.height,
+            child: _wrapInRotatedBox(
+              orientation: orientation,
+              child: Texture(
+                key: ValueKey('camera_preview_$_textureRebuildCounter'),
+                textureId: _textureId,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildFittedOverlay(
-      BoxConstraints constraints, NativeDeviceOrientation orientation) {
+    BoxConstraints constraints,
+    NativeDeviceOrientation orientation,
+  ) {
     final orientedSize = _size.orientate(orientation);
-    final fittedSize =
-        applyBoxFit(widget.fit, orientedSize, constraints.biggest);
+    final fittedSize = applyBoxFit(
+      widget.fit,
+      orientedSize,
+      constraints.biggest,
+    );
     return SizedBox(
-        width: fittedSize.destination.width,
-        height: fittedSize.destination.height,
-        child: widget.child ?? Container());
+      width: fittedSize.destination.width,
+      height: fittedSize.destination.height,
+      child: widget.child ?? Container(),
+    );
   }
 
-  Widget _wrapInRotatedBox(
-      {required NativeDeviceOrientation orientation, required Widget child}) {
+  Widget _wrapInRotatedBox({
+    required NativeDeviceOrientation orientation,
+    required Widget child,
+  }) {
     if (defaultTargetPlatform != TargetPlatform.android) {
       return child;
     }
@@ -154,7 +197,7 @@ extension OrientationHelper on NativeDeviceOrientation {
   bool isLandscape() {
     return [
       NativeDeviceOrientation.landscapeLeft,
-      NativeDeviceOrientation.landscapeRight
+      NativeDeviceOrientation.landscapeRight,
     ].contains(this);
   }
 

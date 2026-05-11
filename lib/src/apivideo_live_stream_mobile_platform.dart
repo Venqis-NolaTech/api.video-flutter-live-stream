@@ -6,8 +6,9 @@ import 'types.dart';
 
 /// Controller of the live streaming
 class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
-  final MethodChannel _channel =
-      const MethodChannel('video.api.livestream/controller');
+  final MethodChannel _channel = const MethodChannel(
+    'video.api.livestream/controller',
+  );
 
   /// Registers this class as the default instance of [PathProviderPlatform].
   static void registerWith() {
@@ -16,8 +17,8 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
 
   @override
   Future<int?> initialize() async {
-    final Map<String, dynamic>? reply =
-        await _channel.invokeMapMethod<String, dynamic>('create');
+    final Map<String, dynamic>? reply = await _channel
+        .invokeMapMethod<String, dynamic>('create');
     return reply!['textureId']! as int;
   }
 
@@ -37,8 +38,10 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
   }
 
   @override
-  Future<void> startStreaming(
-      {required String streamKey, required String url}) {
+  Future<void> startStreaming({
+    required String streamKey,
+    required String url,
+  }) {
     return _channel.invokeMethod('startStreaming', <String, dynamic>{
       'streamKey': streamKey,
       'url': url,
@@ -68,10 +71,21 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
   }
 
   @override
-  Future<void> setCameraPosition(CameraPosition cameraPosition) {
-    return _channel.invokeMethod('setCameraPosition',
-        <String, dynamic>{'position': cameraPosition.toJson()});
+  Future<void> setCameraPosition(CameraPosition cameraPosition) async {
+    await _channel.invokeMethod('setCameraPosition', <String, dynamic>{
+      'position': cameraPosition.toJson(),
+    });
+    // Notify listeners that camera was switched so the preview texture can be refreshed
+    _emitCameraSwitchedEvent();
   }
+
+  void _emitCameraSwitchedEvent() {
+    for (var listener in [..._eventsListeners]) {
+      listener(LiveStreamingEvent(type: LiveStreamingEventType.cameraSwitched));
+    }
+  }
+
+  List<void Function(LiveStreamingEvent)> _eventsListeners = [];
 
   @override
   Future<CameraPosition> getCameraPosition() async {
@@ -82,8 +96,9 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
 
   @override
   Future<void> setIsMuted(bool isMuted) {
-    return _channel
-        .invokeMethod('setIsMuted', <String, dynamic>{'isMuted': isMuted});
+    return _channel.invokeMethod('setIsMuted', <String, dynamic>{
+      'isMuted': isMuted,
+    });
   }
 
   @override
@@ -112,9 +127,9 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
 
   @override
   Stream<LiveStreamingEvent> liveStreamingEventsFor(int textureId) {
-    return EventChannel('video.api.livestream/events')
-        .receiveBroadcastStream()
-        .map((dynamic map) {
+    return EventChannel(
+      'video.api.livestream/events',
+    ).receiveBroadcastStream().map((dynamic map) {
       final Map<dynamic, dynamic> event = map as Map<dynamic, dynamic>;
       switch (event['type']) {
         case 'connected':
@@ -123,12 +138,14 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
           return LiveStreamingEvent(type: LiveStreamingEventType.disconnected);
         case 'connectionFailed':
           return LiveStreamingEvent(
-              type: LiveStreamingEventType.connectionFailed,
-              data: event['message']);
+            type: LiveStreamingEventType.connectionFailed,
+            data: event['message'],
+          );
         case 'videoSizeChanged':
           return LiveStreamingEvent(
-              type: LiveStreamingEventType.videoSizeChanged,
-              data: Size(event['width'] as double, event['height'] as double));
+            type: LiveStreamingEventType.videoSizeChanged,
+            data: Size(event['width'] as double, event['height'] as double),
+          );
         default:
           return LiveStreamingEvent(type: LiveStreamingEventType.unknown);
       }

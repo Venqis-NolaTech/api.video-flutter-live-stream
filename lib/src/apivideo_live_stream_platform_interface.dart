@@ -42,8 +42,10 @@ abstract class ApiVideoLiveStreamPlatform extends PlatformInterface {
     throw UnimplementedError('setAudioConfig() has not been implemented.');
   }
 
-  Future<void> startStreaming(
-      {required String streamKey, required String url}) {
+  Future<void> startStreaming({
+    required String streamKey,
+    required String url,
+  }) {
     throw UnimplementedError('startStreaming() has not been implemented.');
   }
 
@@ -86,7 +88,8 @@ abstract class ApiVideoLiveStreamPlatform extends PlatformInterface {
   /// Returns a Stream of [LiveStreamingEvent]s.
   Stream<LiveStreamingEvent> liveStreamingEventsFor(int textureId) {
     throw UnimplementedError(
-        'liveStreamingEventsFor() has not been implemented.');
+      'liveStreamingEventsFor() has not been implemented.',
+    );
   }
 
   Widget buildPreview(int textureId) {
@@ -119,6 +122,9 @@ enum LiveStreamingEventType {
   /// The video size has changed.
   videoSizeChanged,
 
+  /// The camera has been switched (front <-> back).
+  cameraSwitched,
+
   /// Unknown event
-  unknown
+  unknown,
 }

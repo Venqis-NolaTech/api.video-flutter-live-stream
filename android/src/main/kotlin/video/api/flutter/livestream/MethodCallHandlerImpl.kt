@@ -182,7 +182,10 @@ class MethodCallHandlerImpl(
                 }
                 try {
                     flutterView!!.setCameraPosition(cameraPosition,
-                        { result.success(null) },
+                        {
+                            result.success(null)
+                            sendCameraSwitched()
+                        },
                         {
                             result.error(
                                 "failed_to_set_camera_position",
@@ -272,6 +275,10 @@ class MethodCallHandlerImpl(
                 )
             )
         }
+    }
+
+    private fun sendCameraSwitched() {
+        sendEvent("cameraSwitched")
     }
 
     companion object {
