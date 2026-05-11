@@ -197,15 +197,14 @@ class FlutterLiveStreamView(
         permissionsManager.requestPermission(
             Manifest.permission.CAMERA,
             onGranted = {
-                try {
-                    runBlocking(Dispatchers.Default) {
-                        streamer.setCameraId(camera)
+                // Run off the UI thread (permission callback may be Main); avoid runBlocking there.
+                scope.launch(Dispatchers.Default) {
+                    try {
+                        restartCameraIfPreviewWasActive(camera, onSuccess, onError)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "setCamera failed", e)
+                        onError(e)
                     }
-                    Log.d(TAG, "setCamera success")
-                    onSuccess()
-                } catch (e: Exception) {
-                    Log.e(TAG, "setCamera failed", e)
-                    onError(e)
                 }
             },
             onRationaleProceed = { _: () -> Unit ->
@@ -214,6 +213,54 @@ class FlutterLiveStreamView(
             onDenied = {
                 onError(SecurityException("Missing permission Manifest.permission.CAMERA"))
             })
+    }
+
+    /**
+     * StreamPack replaces [CameraSource] on [setCameraId]; the Flutter [SurfaceTexture] PREVIEW target
+     * must be re-attached ([startPreview]) or frames stop updating ([video.api.flutter.livestream] freeze).
+     */
+    private suspend fun restartCameraIfPreviewWasActive(
+        cameraId: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        val wasPreviewing = _isPreviewing
+        if (wasPreviewing) {
+            try {
+                streamer.stopPreview()
+            } catch (_: Exception) {
+            }
+            _isPreviewing = false
+            Log.d(TAG, "restartCameraIfPreviewWasActive | stopped preview before camera switch")
+        }
+
+        streamer.setCameraId(cameraId)
+        Log.d(TAG, "restartCameraIfPreviewWasActive | setCameraId success")
+
+        if (wasPreviewing) {
+            if (_videoConfig == null) {
+                onError(IllegalStateException("Video has not been configured!"))
+                return
+            }
+            try {
+                startPreviewSurfaceSuspended()
+                Log.d(TAG, "restartCameraIfPreviewWasActive | preview restarted")
+            } catch (e: Exception) {
+                Log.e(TAG, "restartCameraIfPreviewWasActive | startPreview failed", e)
+                onError(e)
+                return
+            }
+        }
+        onSuccess()
+    }
+
+    /** Same surface binding as [startPreview] inner path (permission already verified). */
+    private suspend fun startPreviewSurfaceSuspended() {
+        checkNotNull(_videoConfig) { "Video has not been configured!" }
+        val surface = getSurface(videoConfig.resolution)
+        streamer.startPreview(surface)
+        _isPreviewing = true
+        Log.d(TAG, "startPreviewSurfaceSuspended done")
     }
 
     val cameraPosition: String
@@ -306,17 +353,15 @@ class FlutterLiveStreamView(
                 if (_videoConfig == null) {
                     onError(IllegalStateException("Video has not been configured!"))
                 } else {
-                    try {
-                        val surface = getSurface(videoConfig.resolution)
-                        runBlocking(Dispatchers.Default) {
-                            streamer.startPreview(surface)
+                    scope.launch(Dispatchers.Default) {
+                        try {
+                            startPreviewSurfaceSuspended()
+                            Log.d(TAG, "startPreview success")
+                            onSuccess()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "startPreview failed", e)
+                            onError(e)
                         }
-                        _isPreviewing = true
-                        Log.d(TAG, "startPreview success")
-                        onSuccess()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "startPreview failed", e)
-                        onError(e)
                     }
                 }
             },
