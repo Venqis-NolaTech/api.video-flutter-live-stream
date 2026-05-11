@@ -3,7 +3,8 @@ version '1.0-SNAPSHOT'
 
 buildscript {
     ext {
-        kotlin_version = '2.1.10'
+        // Keep aligned with the host app (`android/settings.gradle.kts` Kotlin Android plugin).
+        kotlin_version = '2.2.0'
         // Matches Maven Central latest `streampack-core` + `streampack-rtmp`
         // (verified 2026-05: maven-metadata `<release>` = 3.1.2). Keep both deps on the same value.
         streamPackVersion = '3.1.2'
@@ -58,6 +59,7 @@ dependencies {
 
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
     implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'androidx.core:core-ktx:1.15.0'
 
     implementation "io.github.thibaultbee.streampack:streampack-core:$streamPackVersion"
     implementation "io.github.thibaultbee.streampack:streampack-rtmp:$streamPackVersion"

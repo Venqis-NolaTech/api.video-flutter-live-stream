@@ -145,7 +145,7 @@ class FlutterLiveStreamView(
                     onError(e)
                 }
             },
-            onShowPermissionRationale = { _ ->
+            onRationaleProceed = { _: () -> Unit ->
                 onError(SecurityException("Missing permission Manifest.permission.RECORD_AUDIO"))
             },
             onDenied = {
@@ -175,7 +175,7 @@ class FlutterLiveStreamView(
                     onError(e)
                 }
             },
-            onShowPermissionRationale = { _ ->
+            onRationaleProceed = { _: () -> Unit ->
                 onError(SecurityException("Missing permission Manifest.permission.CAMERA"))
             },
             onDenied = {
@@ -271,7 +271,7 @@ class FlutterLiveStreamView(
                     }
                 }
             },
-            onShowPermissionRationale = { _ ->
+            onRationaleProceed = { _: () -> Unit ->
                 onError(SecurityException("Missing permission Manifest.permission.CAMERA"))
             },
             onDenied = {

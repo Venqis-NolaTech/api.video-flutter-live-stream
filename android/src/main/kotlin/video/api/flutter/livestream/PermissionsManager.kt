@@ -20,9 +20,6 @@ class PermissionsManager(
     var activity: Activity? = null
 
     private val listeners = mutableMapOf<Int, IListener>()
-    private fun hasPermission(permission: String) =
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-
     private fun hasAllPermissions(permissions: List<String>) = permissions.all { permission ->
         ContextCompat.checkSelfPermission(
             context,
@@ -41,7 +38,7 @@ class PermissionsManager(
     fun requestPermissions(
         permissions: List<String>,
         onAllGranted: () -> Unit,
-        onShowPermissionRationale: (List<String>, () -> Unit) -> Unit,
+        onRationaleRequested: (List<String>, () -> Unit) -> Unit,
         onAtLeastOnePermissionDenied: () -> Unit
     ) {
         activity?.let {
@@ -54,7 +51,7 @@ class PermissionsManager(
                     permissions: List<String>,
                     onRequiredPermissionLastTime: () -> Unit
                 ) {
-                    onShowPermissionRationale(permissions, onRequiredPermissionLastTime)
+                    onRationaleRequested(permissions, onRequiredPermissionLastTime)
                 }
 
                 override fun onAtLeastOnePermissionDenied() {
@@ -97,7 +94,7 @@ class PermissionsManager(
     fun requestPermission(
         permission: String,
         onGranted: () -> Unit,
-        onShowPermissionRationale: (() -> Unit) -> Unit,
+        onRationaleProceed: (() -> Unit) -> Unit,
         onDenied: () -> Unit
     ) {
         activity?.let {
@@ -110,7 +107,7 @@ class PermissionsManager(
                     permissions: List<String>,
                     onRequiredPermissionLastTime: () -> Unit
                 ) {
-                    onShowPermissionRationale(onRequiredPermissionLastTime)
+                    onRationaleProceed(onRequiredPermissionLastTime)
                 }
 
                 override fun onAtLeastOnePermissionDenied() {
