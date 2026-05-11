@@ -2,11 +2,14 @@ package video.api.flutter.livestream
 
 import android.Manifest
 import android.content.Context
+import android.graphics.SurfaceTexture
+import android.util.Log
 import android.util.Size
 import android.view.Surface
 import io.flutter.view.TextureRegistry
 import io.github.thibaultbee.streampack.core.elements.encoders.AudioCodecConfig
 import io.github.thibaultbee.streampack.core.elements.encoders.VideoCodecConfig
+import io.github.thibaultbee.streampack.core.elements.sources.video.IPreviewableSource
 import io.github.thibaultbee.streampack.core.elements.sources.video.camera.ICameraSource
 import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.backCameras
 import io.github.thibaultbee.streampack.core.elements.sources.video.camera.extensions.cameraManager
@@ -27,9 +30,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 class FlutterLiveStreamView(
     private val context: Context,
@@ -41,19 +46,19 @@ class FlutterLiveStreamView(
     private val onGenericError: (Exception) -> Unit,
     private val onVideoSizeChanged: (Size) -> Unit,
 ) {
+    companion object {
+        private const val TAG = "FlutterLiveStreamView"
+    }
+
     private val flutterTexture = textureRegistry.createSurfaceTexture()
     val textureId: Long
         get() = flutterTexture.id()
 
-    private val streamer: SingleStreamer = runBlocking {
-        cameraSingleStreamer(
-            context,
-            endpointFactory = RtmpEndpointFactory(),
-        )
-    }
+    /** Created in [init] after [StreamPackAndroidLoggerInstaller] so StreamPack logs are visible. */
+    private lateinit var streamer: SingleStreamer
 
     private val supervisorJob = SupervisorJob()
-    private val scope = CoroutineScope(supervisorJob + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(supervisorJob + Dispatchers.Default)
 
     private var _isPreviewing = false
     private var _isStreaming = false
@@ -69,12 +74,23 @@ class FlutterLiveStreamView(
             ?: throw IllegalStateException("Camera source is not ready")
 
     init {
+        StreamPackAndroidLoggerInstaller.installOnce()
+        streamer = runBlocking(Dispatchers.Default) {
+            cameraSingleStreamer(
+                context,
+                endpointFactory = RtmpEndpointFactory(),
+            )
+        }
+        Log.d(TAG, "cameraSingleStreamer created | textureId=$textureId")
+
         scope.launch {
             streamer.throwableFlow
                 .filterNotNull()
                 .collect { t ->
                     _isStreaming = false
-                    onGenericError(t as? Exception ?: Exception(t.message, t))
+                    Log.e(TAG, "streamer throwableFlow", t)
+                    val ex = t as? Exception ?: Exception(t.message, t)
+                    onGenericError(ex)
                 }
         }
         scope.launch {
@@ -83,6 +99,7 @@ class FlutterLiveStreamView(
                 .collect {
                     if (_isStreaming) {
                         _isStreaming = false
+                        Log.d(TAG, "isOpenFlow became false -> onDisconnected")
                         onDisconnected()
                     }
                 }
@@ -94,6 +111,8 @@ class FlutterLiveStreamView(
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
+        Log.d(TAG, "setVideoConfig | resolution=${videoConfig.resolution} fps=${videoConfig.fps}")
+
         if (_isStreaming) {
             throw UnsupportedOperationException("You have to stop streaming first")
         }
@@ -105,16 +124,22 @@ class FlutterLiveStreamView(
             stopPreview()
         }
         try {
-            runBlocking {
+            runBlocking(Dispatchers.Default) {
                 streamer.setVideoConfig(videoConfig)
+                // Ensure pipeline applied config before preview (avoid race with encoder/preview setup).
+                withTimeout(15_000) {
+                    streamer.videoConfigFlow.first { it != null && it == videoConfig }
+                }
             }
             _videoConfig = videoConfig
+            Log.d(TAG, "setVideoConfig success | wasPreviewing=$wasPreviewing")
             if (wasPreviewing) {
                 startPreview(onSuccess, onError)
             } else {
                 onSuccess()
             }
         } catch (e: Exception) {
+            Log.e(TAG, "setVideoConfig failed", e)
             onError(e)
         }
     }
@@ -128,6 +153,8 @@ class FlutterLiveStreamView(
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
+        Log.d(TAG, "setAudioConfig | bitrate=${audioConfig.startBitrate}")
+
         if (_isStreaming) {
             throw UnsupportedOperationException("You have to stop streaming first")
         }
@@ -136,12 +163,14 @@ class FlutterLiveStreamView(
             Manifest.permission.RECORD_AUDIO,
             onGranted = {
                 try {
-                    runBlocking {
+                    runBlocking(Dispatchers.Default) {
                         streamer.setAudioConfig(audioConfig)
                     }
                     _audioConfig = audioConfig
+                    Log.d(TAG, "setAudioConfig success")
                     onSuccess()
                 } catch (e: Exception) {
+                    Log.e(TAG, "setAudioConfig failed", e)
                     onError(e)
                 }
             },
@@ -163,15 +192,19 @@ class FlutterLiveStreamView(
         get() = cameraId
 
     fun setCamera(camera: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        Log.d(TAG, "setCamera | cameraId=$camera")
+
         permissionsManager.requestPermission(
             Manifest.permission.CAMERA,
             onGranted = {
                 try {
-                    runBlocking {
+                    runBlocking(Dispatchers.Default) {
                         streamer.setCameraId(camera)
                     }
+                    Log.d(TAG, "setCamera success")
                     onSuccess()
                 } catch (e: Exception) {
+                    Log.e(TAG, "setCamera failed", e)
                     onError(e)
                 }
             },
@@ -192,6 +225,8 @@ class FlutterLiveStreamView(
         }
 
     fun setCameraPosition(position: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        Log.d(TAG, "setCameraPosition | position=$position")
+
         val cameraList = when (position) {
             "front" -> context.cameraManager.frontCameras
             "back" -> context.cameraManager.backCameras
@@ -202,8 +237,10 @@ class FlutterLiveStreamView(
     }
 
     fun dispose() {
+        Log.d(TAG, "dispose")
+
         stopStream()
-        runBlocking {
+        runBlocking(Dispatchers.Default) {
             try {
                 streamer.stopPreview()
             } catch (_: Exception) {
@@ -218,27 +255,34 @@ class FlutterLiveStreamView(
     }
 
     fun startStream(url: String) {
-        runBlocking {
+        Log.d(TAG, "startStream | url=$url")
+
+        runBlocking(Dispatchers.Default) {
             try {
                 streamer.open(RtmpMediaDescriptor.fromUrl(url))
                 onConnectionSucceeded()
                 streamer.startStream()
                 _isStreaming = true
+                Log.d(TAG, "startStream success")
             } catch (e: Exception) {
                 try {
                     streamer.close()
                 } catch (_: Exception) {
                 }
-                onConnectionFailed("Failed to start stream: ${e.message}")
+                val msg = "Failed to start stream: ${e.message}"
+                onConnectionFailed(msg)
+                Log.e(TAG, "startStream failed", e)
                 throw e
             }
         }
     }
 
     fun stopStream() {
+        Log.d(TAG, "stopStream")
+
         val wasOpen = streamer.isOpenFlow.value
         _isStreaming = false
-        runBlocking {
+        runBlocking(Dispatchers.Default) {
             try {
                 streamer.stopStream()
             } catch (_: Exception) {
@@ -254,6 +298,8 @@ class FlutterLiveStreamView(
     }
 
     fun startPreview(onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        Log.d(TAG, "startPreview")
+
         permissionsManager.requestPermission(
             Manifest.permission.CAMERA,
             onGranted = {
@@ -261,12 +307,15 @@ class FlutterLiveStreamView(
                     onError(IllegalStateException("Video has not been configured!"))
                 } else {
                     try {
-                        runBlocking {
-                            streamer.startPreview(getSurface(videoConfig.resolution))
+                        val surface = getSurface(videoConfig.resolution)
+                        runBlocking(Dispatchers.Default) {
+                            streamer.startPreview(surface)
                         }
                         _isPreviewing = true
+                        Log.d(TAG, "startPreview success")
                         onSuccess()
                     } catch (e: Exception) {
+                        Log.e(TAG, "startPreview failed", e)
                         onError(e)
                     }
                 }
@@ -280,7 +329,9 @@ class FlutterLiveStreamView(
     }
 
     fun stopPreview() {
-        runBlocking {
+        Log.d(TAG, "stopPreview")
+
+        runBlocking(Dispatchers.Default) {
             try {
                 streamer.stopPreview()
             } catch (_: Exception) {
@@ -290,10 +341,17 @@ class FlutterLiveStreamView(
     }
 
     private fun getSurface(resolution: Size): Surface {
+        val previewSize = (streamer.videoInput?.sourceFlow?.value as? IPreviewableSource)
+            ?.getPreviewSize(resolution, SurfaceTexture::class.java)
+            ?: resolution
+        Log.d(
+            TAG,
+            "getSurface | requested=$resolution previewSize=$previewSize",
+        )
         val surfaceTexture = flutterTexture.surfaceTexture().apply {
             setDefaultBufferSize(
-                resolution.width,
-                resolution.height
+                previewSize.width,
+                previewSize.height
             )
         }
         return Surface(surfaceTexture)
