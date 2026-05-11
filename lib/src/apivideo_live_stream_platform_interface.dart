@@ -125,6 +125,9 @@ enum LiveStreamingEventType {
   /// The camera has been switched (front <-> back).
   cameraSwitched,
 
+  /// The texture has been recreated (new camera requires new textureId).
+  textureRecreated,
+
   /// Unknown event
   unknown,
 }

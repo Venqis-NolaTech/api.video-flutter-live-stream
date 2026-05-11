@@ -44,9 +44,9 @@ class ApiVideoLiveStreamController {
     Function(String)? onConnectionFailed,
     VoidCallback? onDisconnection,
     Function(Exception)? onError,
-  }) : _initialVideoConfig = initialVideoConfig,
-       _initialAudioConfig = initialAudioConfig,
-       _initialCameraPosition = initialCameraPosition {
+  })  : _initialVideoConfig = initialVideoConfig,
+        _initialAudioConfig = initialAudioConfig,
+        _initialCameraPosition = initialCameraPosition {
     _eventsListeners.add(
       ApiVideoLiveStreamEventsListener(
         onConnectionSuccess: onConnectionSuccess,
@@ -62,9 +62,9 @@ class ApiVideoLiveStreamController {
     required VideoConfig initialVideoConfig,
     CameraPosition initialCameraPosition = CameraPosition.back,
     ApiVideoLiveStreamEventsListener? listener,
-  }) : _initialVideoConfig = initialVideoConfig,
-       _initialAudioConfig = initialAudioConfig,
-       _initialCameraPosition = initialCameraPosition {
+  })  : _initialVideoConfig = initialVideoConfig,
+        _initialAudioConfig = initialAudioConfig,
+        _initialCameraPosition = initialCameraPosition {
     if (listener != null) {
       _eventsListeners.add(listener);
     }
@@ -265,6 +265,15 @@ class ApiVideoLiveStreamController {
         for (var listener in [..._widgetListeners]) {
           if (listener.onCameraSwitched != null) {
             listener.onCameraSwitched!();
+          }
+        }
+        break;
+      case LiveStreamingEventType.textureRecreated:
+        // Update internal texture ID when native creates a new one
+        _textureId = event.data as int;
+        for (var listener in [..._widgetListeners]) {
+          if (listener.onTextureReady != null) {
+            listener.onTextureReady!();
           }
         }
         break;

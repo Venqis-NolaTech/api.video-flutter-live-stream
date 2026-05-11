@@ -47,14 +47,24 @@ class FlutterLiveStreamView(
     private val onConnectionFailed: (String) -> Unit,
     private val onGenericError: (Exception) -> Unit,
     private val onVideoSizeChanged: (Size) -> Unit,
+    private val onTextureRecreated: (Long) -> Unit,
 ) {
     companion object {
         private const val TAG = "FlutterLiveStreamView"
     }
 
-    private val flutterTexture = textureRegistry.createSurfaceTexture()
+    private var flutterTexture = textureRegistry.createSurfaceTexture()
     val textureId: Long
         get() = flutterTexture.id()
+
+    /** Creates a new SurfaceTexture for camera switch - forces Flutter to render new camera frames */
+    private fun recreateFlutterTexture() {
+        Log.d(TAG, "recreateFlutterTexture | oldTextureId=${flutterTexture.id()}")
+        flutterTexture.release()
+        flutterTexture = textureRegistry.createSurfaceTexture()
+        Log.d(TAG, "recreateFlutterTexture | newTextureId=${textureId}")
+        onTextureRecreated(textureId)
+    }
 
     /** Created in [init] after [StreamPackAndroidLoggerInstaller] so StreamPack logs are visible. */
     private lateinit var streamer: SingleStreamer
@@ -257,6 +267,9 @@ class FlutterLiveStreamView(
             Log.d(TAG, "restartCameraIfPreviewWasActive | setCameraId success")
 
             if (wasPreviewing) {
+                // Force recreation of Flutter texture to ensure new camera frames are rendered
+                recreateFlutterTexture()
+
                 // Native preview was torn down with the old CameraSource even if StreamPack raced our flag.
                 releasePreviewSurfaceLocked()
                 _isPreviewing = false
@@ -268,7 +281,7 @@ class FlutterLiveStreamView(
                 }
                 try {
                     startPreviewPipelineLocked(cfg)
-                    Log.d(TAG, "restartCameraIfPreviewWasActive | preview restarted")
+                    Log.d(TAG, "restartCameraIfPreviewWasActive | preview restarted with new texture")
                 } catch (e: Exception) {
                     Log.e(TAG, "restartCameraIfPreviewWasActive | startPreview failed", e)
                     failed = e

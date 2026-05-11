@@ -17,8 +17,8 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
 
   @override
   Future<int?> initialize() async {
-    final Map<String, dynamic>? reply = await _channel
-        .invokeMapMethod<String, dynamic>('create');
+    final Map<String, dynamic>? reply =
+        await _channel.invokeMapMethod<String, dynamic>('create');
     return reply!['textureId']! as int;
   }
 
@@ -139,6 +139,11 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
         case 'cameraSwitched':
           return LiveStreamingEvent(
             type: LiveStreamingEventType.cameraSwitched,
+          );
+        case 'textureRecreated':
+          return LiveStreamingEvent(
+            type: LiveStreamingEventType.textureRecreated,
+            data: event['textureId'] as int,
           );
         default:
           return LiveStreamingEvent(type: LiveStreamingEventType.unknown);

@@ -57,7 +57,8 @@ class MethodCallHandlerImpl(
                         { sendDisconnected() },
                         { sendConnectionFailed(it) },
                         { sendError(it) },
-                        { sendVideoSizeChanged(it) }
+                        { sendVideoSizeChanged(it) },
+                        { sendTextureRecreated(it) }
                     )
                     result.success(mapOf("textureId" to flutterView!!.textureId))
                 } catch (e: Exception) {
@@ -279,6 +280,12 @@ class MethodCallHandlerImpl(
 
     private fun sendCameraSwitched() {
         sendEvent("cameraSwitched")
+    }
+
+    private fun sendTextureRecreated(textureId: Long) {
+        Handler(Looper.getMainLooper()).post {
+            eventSink?.success(mapOf("type" to "textureRecreated", "textureId" to textureId))
+        }
     }
 
     companion object {
