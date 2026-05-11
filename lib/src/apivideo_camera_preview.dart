@@ -87,7 +87,6 @@ class _ApiVideoCameraPreviewState extends State<ApiVideoCameraPreview> {
 
   @override
   void dispose() {
-    widget.controller.stopPreview();
     widget.controller.removeWidgetListener(_widgetListener);
     widget.controller.removeEventsListener(_eventsListener);
     super.dispose();
@@ -137,9 +136,10 @@ class _ApiVideoCameraPreviewState extends State<ApiVideoCameraPreview> {
             height: orientedSize.height,
             child: _wrapInRotatedBox(
               orientation: orientation,
-              child: Texture(
-                key: ValueKey('camera_preview_$_textureRebuildCounter'),
-                textureId: _textureId,
+              child: SizedBox(
+                width: orientedSize.width,
+                height: orientedSize.height,
+                child: Texture(textureId: _textureId),
               ),
             ),
           ),

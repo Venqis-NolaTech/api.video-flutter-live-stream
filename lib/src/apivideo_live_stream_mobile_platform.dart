@@ -71,21 +71,11 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
   }
 
   @override
-  Future<void> setCameraPosition(CameraPosition cameraPosition) async {
-    await _channel.invokeMethod('setCameraPosition', <String, dynamic>{
+  Future<void> setCameraPosition(CameraPosition cameraPosition) {
+    return _channel.invokeMethod('setCameraPosition', <String, dynamic>{
       'position': cameraPosition.toJson(),
     });
-    // Notify listeners that camera was switched so the preview texture can be refreshed
-    _emitCameraSwitchedEvent();
   }
-
-  void _emitCameraSwitchedEvent() {
-    for (var listener in [..._eventsListeners]) {
-      listener(LiveStreamingEvent(type: LiveStreamingEventType.cameraSwitched));
-    }
-  }
-
-  List<void Function(LiveStreamingEvent)> _eventsListeners = [];
 
   @override
   Future<CameraPosition> getCameraPosition() async {
@@ -145,6 +135,10 @@ class ApiVideoMobileLiveStreamPlatform extends ApiVideoLiveStreamPlatform {
           return LiveStreamingEvent(
             type: LiveStreamingEventType.videoSizeChanged,
             data: Size(event['width'] as double, event['height'] as double),
+          );
+        case 'cameraSwitched':
+          return LiveStreamingEvent(
+            type: LiveStreamingEventType.cameraSwitched,
           );
         default:
           return LiveStreamingEvent(type: LiveStreamingEventType.unknown);
