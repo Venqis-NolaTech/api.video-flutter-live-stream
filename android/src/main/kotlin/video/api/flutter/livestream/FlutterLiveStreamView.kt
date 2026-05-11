@@ -224,8 +224,14 @@ class FlutterLiveStreamView(
     }
 
     /**
-     * StreamPack replaces [CameraSource] on [setCameraId]; the Flutter [SurfaceTexture] PREVIEW target
-     * must be re-attached ([startPreview]) or frames stop updating ([video.api.flutter.livestream] freeze).
+     * StreamPack [VideoInput.setSource] already tears down the previous [CameraSource] on camera↔camera
+     * swap (stopStream + release). Calling [streamer.stopPreview] *before* [setCameraId] fights that
+     * lifecycle and can leave preview stuck (frames never resume on the Flutter texture).
+     *
+     * After [setCameraId], we must drop our [Surface] wrapper and run [startPreviewPipelineLocked] so the
+     * new camera binds the Flutter [SurfaceTexture] again.
+     *
+     * @see io.github.thibaultbee.streampack.core.pipelines.inputs.VideoInput.setSource
      */
     private suspend fun restartCameraIfPreviewWasActive(
         cameraId: String,
@@ -235,10 +241,11 @@ class FlutterLiveStreamView(
         var failed: Exception? = null
         previewMutex.withLock {
             val wasPreviewing = _isPreviewing
-            if (wasPreviewing) {
-                stopPreviewPipelineLocked()
-                Log.d(TAG, "restartCameraIfPreviewWasActive | stopped preview before camera switch")
-            }
+            Log.d(
+                TAG,
+                "restartCameraIfPreviewWasActive | wasPreviewing=$wasPreviewing | cameraId=$cameraId " +
+                    "(no streamer.stopPreview before setCameraId — StreamPack owns camera swap teardown)",
+            )
 
             try {
                 streamer.setCameraId(cameraId)
@@ -250,6 +257,10 @@ class FlutterLiveStreamView(
             Log.d(TAG, "restartCameraIfPreviewWasActive | setCameraId success")
 
             if (wasPreviewing) {
+                // Native preview was torn down with the old CameraSource even if StreamPack raced our flag.
+                releasePreviewSurfaceLocked()
+                _isPreviewing = false
+
                 val cfg = _videoConfig
                 if (cfg == null) {
                     failed = IllegalStateException("Video has not been configured!")
