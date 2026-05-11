@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 
 class FlutterLiveStreamView(
@@ -59,6 +61,12 @@ class FlutterLiveStreamView(
 
     private val supervisorJob = SupervisorJob()
     private val scope = CoroutineScope(supervisorJob + Dispatchers.Default)
+
+    /** Serializes preview attach/detach vs camera switch — avoids orphaned Surfaces racing Camera2. */
+    private val previewMutex = Mutex()
+
+    /** Last preview [Surface]; must [Surface.release] before allocating another for the same [flutterTexture]. */
+    private var previewSurface: Surface? = null
 
     private var _isPreviewing = false
     private var _isStreaming = false
@@ -224,42 +232,99 @@ class FlutterLiveStreamView(
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        val wasPreviewing = _isPreviewing
-        if (wasPreviewing) {
-            try {
-                streamer.stopPreview()
-            } catch (_: Exception) {
+        var failed: Exception? = null
+        previewMutex.withLock {
+            val wasPreviewing = _isPreviewing
+            if (wasPreviewing) {
+                stopPreviewPipelineLocked()
+                Log.d(TAG, "restartCameraIfPreviewWasActive | stopped preview before camera switch")
             }
-            _isPreviewing = false
-            Log.d(TAG, "restartCameraIfPreviewWasActive | stopped preview before camera switch")
-        }
 
-        streamer.setCameraId(cameraId)
-        Log.d(TAG, "restartCameraIfPreviewWasActive | setCameraId success")
-
-        if (wasPreviewing) {
-            if (_videoConfig == null) {
-                onError(IllegalStateException("Video has not been configured!"))
-                return
-            }
             try {
-                startPreviewSurfaceSuspended()
-                Log.d(TAG, "restartCameraIfPreviewWasActive | preview restarted")
+                streamer.setCameraId(cameraId)
             } catch (e: Exception) {
-                Log.e(TAG, "restartCameraIfPreviewWasActive | startPreview failed", e)
-                onError(e)
-                return
+                Log.e(TAG, "restartCameraIfPreviewWasActive | setCameraId failed", e)
+                failed = e
+                return@withLock
+            }
+            Log.d(TAG, "restartCameraIfPreviewWasActive | setCameraId success")
+
+            if (wasPreviewing) {
+                val cfg = _videoConfig
+                if (cfg == null) {
+                    failed = IllegalStateException("Video has not been configured!")
+                    return@withLock
+                }
+                try {
+                    startPreviewPipelineLocked(cfg)
+                    Log.d(TAG, "restartCameraIfPreviewWasActive | preview restarted")
+                } catch (e: Exception) {
+                    Log.e(TAG, "restartCameraIfPreviewWasActive | startPreview failed", e)
+                    failed = e
+                }
             }
         }
-        onSuccess()
+        if (failed != null) {
+            onError(failed!!)
+        } else {
+            onSuccess()
+        }
+    }
+
+    private fun releasePreviewSurfaceLocked() {
+        previewSurface?.release()
+        previewSurface = null
+    }
+
+    /**
+     * Creates a new [Surface] for [flutterTexture], releasing any previous one.
+     * Caller must hold [previewMutex] (or run single-threaded before first preview).
+     */
+    private fun createPreviewSurfaceLocked(resolution: Size): Surface {
+        releasePreviewSurfaceLocked()
+        val previewSize = (streamer.videoInput?.sourceFlow?.value as? IPreviewableSource)
+            ?.getPreviewSize(resolution, SurfaceTexture::class.java)
+            ?: resolution
+        Log.d(
+            TAG,
+            "createPreviewSurfaceLocked | requested=$resolution previewSize=$previewSize",
+        )
+        val surfaceTexture = flutterTexture.surfaceTexture().apply {
+            setDefaultBufferSize(
+                previewSize.width,
+                previewSize.height,
+            )
+        }
+        return Surface(surfaceTexture).also { previewSurface = it }
+    }
+
+    private suspend fun stopPreviewPipelineLocked() {
+        try {
+            streamer.stopPreview()
+        } catch (_: Exception) {
+        }
+        releasePreviewSurfaceLocked()
+        _isPreviewing = false
+    }
+
+    /** Start preview; caller must hold [previewMutex]. */
+    private suspend fun startPreviewPipelineLocked(config: VideoCodecConfig) {
+        val surface = createPreviewSurfaceLocked(config.resolution)
+        streamer.startPreview(surface)
+        _isPreviewing = true
+        Log.d(TAG, "startPreviewPipelineLocked done")
     }
 
     /** Same surface binding as [startPreview] inner path (permission already verified). */
     private suspend fun startPreviewSurfaceSuspended() {
-        checkNotNull(_videoConfig) { "Video has not been configured!" }
-        val surface = getSurface(videoConfig.resolution)
-        streamer.startPreview(surface)
-        _isPreviewing = true
+        previewMutex.withLock {
+            val cfg = checkNotNull(_videoConfig) { "Video has not been configured!" }
+            // Defensive: duplicate Dart [startPreview] after [initialize] would stack Surfaces.
+            if (_isPreviewing) {
+                stopPreviewPipelineLocked()
+            }
+            startPreviewPipelineLocked(cfg)
+        }
         Log.d(TAG, "startPreviewSurfaceSuspended done")
     }
 
@@ -288,9 +353,8 @@ class FlutterLiveStreamView(
 
         stopStream()
         runBlocking(Dispatchers.Default) {
-            try {
-                streamer.stopPreview()
-            } catch (_: Exception) {
+            previewMutex.withLock {
+                stopPreviewPipelineLocked()
             }
             try {
                 streamer.release()
@@ -377,28 +441,12 @@ class FlutterLiveStreamView(
         Log.d(TAG, "stopPreview")
 
         runBlocking(Dispatchers.Default) {
-            try {
-                streamer.stopPreview()
-            } catch (_: Exception) {
+            previewMutex.withLock {
+                if (!_isPreviewing && previewSurface == null) {
+                    return@withLock
+                }
+                stopPreviewPipelineLocked()
             }
         }
-        _isPreviewing = false
-    }
-
-    private fun getSurface(resolution: Size): Surface {
-        val previewSize = (streamer.videoInput?.sourceFlow?.value as? IPreviewableSource)
-            ?.getPreviewSize(resolution, SurfaceTexture::class.java)
-            ?: resolution
-        Log.d(
-            TAG,
-            "getSurface | requested=$resolution previewSize=$previewSize",
-        )
-        val surfaceTexture = flutterTexture.surfaceTexture().apply {
-            setDefaultBufferSize(
-                previewSize.width,
-                previewSize.height
-            )
-        }
-        return Surface(surfaceTexture)
     }
 }
