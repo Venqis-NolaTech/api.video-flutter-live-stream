@@ -40,7 +40,7 @@ import kotlinx.coroutines.withTimeout
 
 class FlutterLiveStreamView(
     private val context: Context,
-    textureRegistry: TextureRegistry,
+    private val textureRegistry: TextureRegistry,
     private val permissionsManager: PermissionsManager,
     private val onConnectionSucceeded: () -> Unit,
     private val onDisconnected: () -> Unit,
