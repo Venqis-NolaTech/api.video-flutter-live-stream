@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 class FlutterLiveStreamView(
@@ -57,8 +58,11 @@ class FlutterLiveStreamView(
     val textureId: Long
         get() = flutterTexture.id()
 
-    /** Creates a new SurfaceTexture for camera switch - forces Flutter to render new camera frames */
-    private fun recreateFlutterTexture() {
+    /**
+     * Creates a new SurfaceTexture for camera switch - forces Flutter to render new camera frames.
+     * Must run on the Android main thread — [TextureRegistry] entry release/register are @UiThread.
+     */
+    private fun recreateFlutterTextureOnMainThread() {
         Log.d(TAG, "recreateFlutterTexture | oldTextureId=${flutterTexture.id()}")
         flutterTexture.release()
         flutterTexture = textureRegistry.createSurfaceTexture()
@@ -267,8 +271,10 @@ class FlutterLiveStreamView(
             Log.d(TAG, "restartCameraIfPreviewWasActive | setCameraId success")
 
             if (wasPreviewing) {
-                // Force recreation of Flutter texture to ensure new camera frames are rendered
-                recreateFlutterTexture()
+                // TextureRegistry.release/createSurfaceTexture must run on main (Flutter JNI).
+                withContext(Dispatchers.Main) {
+                    recreateFlutterTextureOnMainThread()
+                }
 
                 // Native preview was torn down with the old CameraSource even if StreamPack raced our flag.
                 releasePreviewSurfaceLocked()
@@ -382,11 +388,18 @@ class FlutterLiveStreamView(
             }
             try {
                 streamer.release()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(TAG, "release failed", e)
             }
         }
         supervisorJob.cancel()
-        flutterTexture.release()
+        runBlocking(Dispatchers.Main) {
+            try {
+                flutterTexture.release()
+            } catch (e: Exception) {
+                Log.e(TAG, "release failed", e)
+            }
+        }
     }
 
     fun startStream(url: String) {
