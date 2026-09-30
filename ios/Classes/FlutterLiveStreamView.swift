@@ -26,13 +26,23 @@ class FlutterLiveStreamView: NSObject {
 
     private(set) var isStreaming = false
 
+    // The SDK already attaches the microphone on creation, so the preview is considered running.
+    // Starting it again would re-attach the microphone on the running capture session.
+    private var isPreviewRunning = true
+
+    // Cached values: reading them from the SDK does a `lockQueue.sync` on HaishinKit's IOStream queue,
+    // which blocks the main thread while the capture session is being (re)configured.
+    private var currentVideoConfig = VideoConfig()
+    private var currentCameraPosition = "other"
+
     var videoConfig: VideoConfig {
         get {
-            liveStream.videoConfig
+            currentVideoConfig
         }
         set {
             sendEvent(["type": "videoSizeChanged", "width": Double(newValue.resolution.width), "height": Double(newValue.resolution.height)])
 
+            currentVideoConfig = newValue
             liveStream.videoConfig = newValue
         }
     }
@@ -57,19 +67,15 @@ class FlutterLiveStreamView: NSObject {
 
     var cameraPosition: String {
         get {
-            if liveStream.cameraPosition == AVCaptureDevice.Position.back {
-                return "back"
-            } else if liveStream.cameraPosition == AVCaptureDevice.Position.front {
-                return "front"
-            } else {
-                return "other"
-            }
+            currentCameraPosition
         }
         set {
             if newValue == "back" {
                 liveStream.cameraPosition = AVCaptureDevice.Position.back
+                currentCameraPosition = newValue
             } else if newValue == "front" {
                 liveStream.cameraPosition = AVCaptureDevice.Position.front
+                currentCameraPosition = newValue
             }
         }
     }
@@ -82,11 +88,16 @@ class FlutterLiveStreamView: NSObject {
     }
 
     func startPreview() {
+        guard !isPreviewRunning else {
+            return
+        }
         liveStream.startPreview()
+        isPreviewRunning = true
     }
 
     func stopPreview() {
         liveStream.stopPreview()
+        isPreviewRunning = false
     }
 
     func startStreaming(streamKey: String, url: String) throws {
